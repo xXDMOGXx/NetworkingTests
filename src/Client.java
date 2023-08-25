@@ -2,27 +2,31 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 
 public class Client implements Runnable{
 
     private Socket client;
     private BufferedReader in;
+    private boolean inOpen = false;
+    private InputHandler inHandler;
     private PrintWriter out;
-    private boolean done;
 
     // Run to start new instanced client. Prints any messages from server, and sends any messages from client
     @Override
     public void run() {
         try {
             // Initialize variables and socket settings
-            client = new Socket("127.0.0.1", 9999);
+            client = new Socket(getServerIP(), 64882);
             out = new PrintWriter(client.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+            inOpen = true;
             // Read console input from a new thread
-            InputHandler inHandler = new InputHandler();
-            Thread t = new Thread(inHandler);
-            t.start();
+            inHandler = new InputHandler();
+            Thread inputThread = new Thread(inHandler);
+            inputThread.start();
 
             // First message from server will be this client's id
             String id = in.readLine();
@@ -32,55 +36,81 @@ public class Client implements Runnable{
             System.out.print(messageSplit[1]);
 
             // Loop reading messages until client is closed or errored
-            while ((inMessage = in.readLine()) != null) {
-                messageSplit = inMessage.split(":", 2);
-                // Ignores message if it matches the client's id to prevent echoing
-                if (!messageSplit[0].equals(id)){
-                    System.out.println(messageSplit[1]);
+            while (inOpen) {
+                if ((inMessage = in.readLine()) != null) {
+                    messageSplit = inMessage.split(":", 2);
+                    // Ignores message if it matches the client's id to prevent echoing
+                    if (!messageSplit[0].equals(id)) {
+                        System.out.println(messageSplit[1]);
+                    }
                 }
             }
         } catch (IOException e) {
-            // shutdown if error in streams
+            System.out.println("Error in Client stream!");
             shutdown();
+        }
+    }
+
+    public String getServerIP() {
+        String ip;
+        try {
+            String localHost = String.valueOf(InetAddress.getLocalHost());
+            String[] hostSplit = localHost.split("/", 2);
+            ip = hostSplit[1];
+            return ip;
+        } catch (UnknownHostException e) {
+            shutdown();
+            return "";
         }
     }
 
     // Shuts down the client
     public void shutdown() {
-        done = true;
         try {
             // Close all streams then the client
+            inOpen = false;
             in.close();
+            inHandler.inReader.close();
             out.close();
             if (!client.isClosed()) {
                 client.close();
             }
         } catch (IOException e) {
-            // ignore
+            System.out.println("Error shutting down Client!");
         }
     }
 
     // Reads the client's console and sends their messages to the server. Shuts the client down if the client types /quit
     class InputHandler implements Runnable{
+        BufferedReader inReader;
         // Runs when new thread starts
         @Override
         public void run() {
-            try {
-                // Initialize stream for console input
-                BufferedReader inReader = new BufferedReader(new InputStreamReader(System.in));
-                while (!done) {
-                    // Read console input and send to server. Shutdown if client types /quit
-                    String message = inReader.readLine();
-                    out.println(message);
-                    if (message.startsWith("/quit")) {
+            // Initialize stream for console input
+            inReader = new BufferedReader(new InputStreamReader(System.in));
+            String message = "";
+            boolean reading = true;
+            while (reading) {
+                // Read console input and send to server. Shutdown if client types /quit
+                try {
+                    message = inReader.readLine();
+                } catch (IOException e) {
+                    System.out.println("Error reading client input!");
+                    shutdown();
+                }
+                out.println(message);
+                if (message.startsWith("/quit")) {
+                    try {
                         inReader.close();
+                    } catch (IOException e) {
+                        System.out.println("Error closing input stream!");
                         shutdown();
                     }
+                    reading = false;
+                    shutdown();
                 }
-            } catch (IOException e) {
-                // shutdown if error in stream
-                shutdown();
             }
+            System.out.println("You Disconnected");
         }
     }
 
