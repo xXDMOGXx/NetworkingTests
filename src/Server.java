@@ -1,3 +1,6 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -8,15 +11,24 @@ import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+
+// TODO: Have a client exit (tell them to shut themselves off), and a force exit (server manually closes streams and references)
+// TODO: Finish UI for Server and Client
+// TODO: Create jar executable to send to friends
+
+
 // Takes in the port as arguments. Creates a server on the specified port that allows clients to connect
 public class Server implements Runnable {
 
     private final int port;
     private ExecutorService pool;
     private final ArrayList<ConnectionHandler> connections;
-    private ServerSocket server;
+    private ServerSocket serverSocket;
     private final ArrayList<String> ids;
     private boolean done;
+    private static final JFrame frame = new JFrame("Server");
+    public static int width = 640;
+    public static int height = 360;
 
     // Initializes variables and port parameter
     public Server(int port) {
@@ -31,16 +43,16 @@ public class Server implements Runnable {
     public void run() {
         try {
             // Initialize socket settings with supplied port
-            server = new ServerSocket(port);
+            serverSocket = new ServerSocket(port);
             pool = Executors.newCachedThreadPool();
             // Read console input from a new thread
-            Server.InputHandler inHandler = new Server.InputHandler();
+            Server.InputHandler inHandler = new InputHandler();
             Thread inputThread = new Thread(inHandler);
             inputThread.start();
             System.out.println("Server Started");
             // Loop accepting and adding clients
             while (!done) {
-                Socket client = server.accept();
+                Socket client = serverSocket.accept();
                 // Create a new unused id for the new client
                 String clientID = createID();
                 // Create the handler for the client and run it in the thread pool
@@ -94,15 +106,17 @@ public class Server implements Runnable {
     // Shuts down the server
     public void shutdown() {
         System.out.println("Server Shutdown Started");
+        done = true;
+        closeWindow();
+        System.out.println("Server Window Closed");
         try {
             // Close server then loop through all clients and close them
-            done = true;
             for (ConnectionHandler ch : connections) {
                 ch.shutdown();
             }
-            if (!server.isClosed()) {
+            if (!serverSocket.isClosed()) {
                 System.out.println("Server Closing");
-                server.close();
+                serverSocket.close();
             }
         } catch (IOException e) {
             System.out.println("Error shutting down Server!");
@@ -250,11 +264,75 @@ public class Server implements Runnable {
         }
     }
 
+    public void createWindow() {
+        UI ui = new UI();
+        ui.setPreferredSize(new Dimension(width, height));
+        //frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        frame.add(ui);
+        frame.setResizable(false);
+        frame.pack();
+        WindowListener exitListener = new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                shutdown();
+            }
+        };
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        frame.addWindowListener(exitListener);
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+    }
+
+    public void closeWindow() {
+        frame.dispose();
+    }
+
+    static class UI extends JPanel implements ActionListener {
+        protected JTextField textField;
+        protected JTextArea textArea;
+        private final static String newline = "\n";
+
+        public UI() {
+            super(new GridBagLayout());
+
+            textField = new JTextField(20);
+            textField.addActionListener(this);
+
+            textArea = new JTextArea(5, 20);
+            textArea.setEditable(false);
+            JScrollPane scrollPane = new JScrollPane(textArea);
+
+            //Add Components to this panel.
+            GridBagConstraints c = new GridBagConstraints();
+            c.gridwidth = GridBagConstraints.REMAINDER;
+
+            c.fill = GridBagConstraints.HORIZONTAL;
+            add(textField, c);
+
+            c.fill = GridBagConstraints.BOTH;
+            c.weightx = 1.0;
+            c.weighty = 1.0;
+            add(scrollPane, c);
+        }
+
+        public void actionPerformed(ActionEvent evt) {
+            String text = textField.getText();
+            textArea.append(text + newline);
+            textField.selectAll();
+
+            //Make sure the new text is visible, even if there
+            //was a selection in the text area.
+            textArea.setCaretPosition(textArea.getDocument().getLength());
+        }
+    }
+
     // Creates new instance of server and runs it when application is started
     public static void main(String[] args) {
         System.out.println("Server Starting");
         Server server = new Server(64882);
+        server.createWindow();
         server.run();
         System.out.println("Server Closed");
+        System.exit(0);
     }
 }
